@@ -1,0 +1,377 @@
+Introduction
+In the last blog post, we started down the road of BDD, utilizing the Cucumber-jvm, and using Webdriver to perform some acceptance tests on our web based application. This post will continue where the last one left off, and move us further along, by examining some of the issues with our testing code base, noting why and how these affect our tests, and making the code more robust to fix these areas. We will be looking at some best practices for making the test code cleaner, and hopefully smoother against an ever changing development code base.
+
+Selenium Webdriver
+The first things we want to look are our Selenium Webdriver functionality. A lot of this Selenium functionality is repeated, which by itself is clearly not ideal. If we ever update our jars or decide to change the implementation, we will need to make multiple updates. So with this being said, let’s create a new java class called SeleniumWebdriver. Let’s also break out our classes into two different packages. As mentioned before, the Cucumber test runner (GenericTest.java) must be in the same package as our feature files and where our gherkin definitions are defined (Tests.java). To achieve this, let’s create a new package (folder under cosmic folder) called definitions, and put the previously mentioned three files in there. Don’t forget to update our package declaration at the beginning of each file. Then let’s create another new package (folder under cosmic folder) called functionality. This file this where our external functionality will be stored.
+
+For this new java class, create a file called ‘SeleniumWebdriver.java’ in the functionality package. This new package will contain all of our Selenium Webdriver actions, and this file should be mainly generic. Ideally, we should be able to use this class for multiple projects, with no dependency for our specific Cosmic Comix project. Below is a good example (commented throughout) with several Selenium functionality implemented. Additionally, if any outside or additional logging was desired, this would be the ideal location for it. This way, each time a Selenium call was made, the logging would come with it for free.
+
+	package comix.cosmic.functionality;
+
+	import java.io.File;
+	import java.io.IOException;
+
+	import org.apache.commons.io.FileUtils;
+	import org.openqa.selenium.By;
+	import org.openqa.selenium.OutputType;
+	import org.openqa.selenium.TakesScreenshot;
+	import org.openqa.selenium.WebDriver;
+	import org.openqa.selenium.WebElement;
+	import org.openqa.selenium.android.AndroidDriver;
+	import org.openqa.selenium.chrome.ChromeDriver;
+	import org.openqa.selenium.firefox.FirefoxDriver;
+	import org.openqa.selenium.ie.InternetExplorerDriver;
+	import org.openqa.selenium.interactions.Actions;
+	import org.openqa.selenium.iphone.IPhoneDriver;
+	import org.openqa.selenium.safari.SafariDriver;
+
+	import static junit.framework.Assert.assertTrue;
+
+	public class SeleniumWebdriver {
+		//what browsers are we interested in implementing
+		public enum Browsers		{ Firefox, Chrome, InternetExplorer, Android, Ipad, Iphone, Opera, Safari };
+		//what locator actions are available in webdriver
+		public enum Locators		{ xpath, id, name, classname, paritallinktext, linktext, tagname };
+
+		//this is our driver that will be used for all selenium actions
+		private WebDriver	driver;
+		//our constructor, determining which browser to start with
+		public SeleniumWebdriver( Browsers browser, String appURL ) throws Exception {
+			switch ( browser ) {		//check our browser
+				case Firefox:		{ driver = new FirefoxDriver(); 		break; }
+				case Chrome:		{ driver = new ChromeDriver();  		break; }
+				case InternetExplorer:	{ driver = new InternetExplorerDriver();  	break; }
+				case Android:		{ driver = new AndroidDriver(); 		break; }
+				case Iphone:		{ driver = new IPhoneDriver();  		break; }
+				case Safari:		{ driver = new SafariDriver();  		break; }
+				//if our browser is not listed, throw an error
+				default:		{ throw new Exception();	}
+			}
+			//open a new driver instance to our application URL
+			driver.get( appURL );
+		}
+
+		//a method to allow retrieving our driver instance
+		public WebDriver getDriver() {
+			return driver;
+		}
+
+		/////////////////////////////////////////
+		//waiting functionality
+		/////////////////////////////////////////
+
+		//a method for allowing selenium to pause for a set amount of time
+		public void wait( int seconds ) throws InterruptedException {
+			Thread.sleep( seconds*1000 );
+		}
+		public void wait( double seconds ) throws InterruptedException {
+			Thread.sleep( Double.doubleToLongBits( seconds*1000 ) );
+		}
+
+		//a method for waiting until an element is displayed
+		public void waitForElementDisplayed( Locators locator, String element ) throws Exception {
+			waitForElementDisplayed( getWebElement( locator, element ), 5 );
+		}
+		public void waitForElementDisplayed( Locators locator, String element, int seconds  ) throws Exception {
+			waitForElementDisplayed( getWebElement( locator, element ), seconds );
+		}
+		public void waitForElementDisplayed( WebElement element ) throws Exception {
+			waitForElementDisplayed( element, 5 );
+		}
+		public void waitForElementDisplayed( WebElement element, int seconds ) throws Exception {
+			//wait for up to XX seconds for our error message
+			long end = System.currentTimeMillis() + ( seconds * 1000 );
+			while (System.currentTimeMillis() < end) {
+				// If results have been returned, the results are displayed in a drop down.
+				if ( element.isDisplayed() ) {
+					break;
+				}
+			}
+		}
+
+		//////////////////////////////////////
+		//checking element functionality
+		//////////////////////////////////////
+
+		//a method for checking id an element is displayed
+		public void checkElementDisplayed( Locators locator, String element ) throws Exception {
+			checkElementDisplayed( getWebElement( locator, element ) );
+		}
+		public void checkElementDisplayed( WebElement element ) throws Exception {
+			assertTrue( element.isDisplayed() );
+		}
+
+		/////////////////////////////////////
+		//selenium actions functionality
+		/////////////////////////////////////
+
+		//our generic selenium click functionality implemented
+		public void click( Locators locator, String element ) throws Exception {
+			click( getWebElement( locator, element ) );
+		}
+		public void click( WebElement element ) {
+			Actions selAction = new Actions(driver);
+			selAction.click( element ).perform();
+		}
+
+		//a method to simulate the mouse hovering over an element
+		public void hover( Locators locator, String element ) throws Exception {
+			hover( getWebElement( locator, element ) );
+		}
+		public void hover( WebElement element ) throws Exception {
+			Actions selAction = new Actions(driver);
+			selAction.moveToElement( element ).perform();
+		}
+
+		//our generic selenium type functionality
+		public void type( Locators locator, String element, String text ) throws Exception {
+			type( getWebElement( locator, element ), text );
+		}
+		public void type( WebElement element, String text ) {
+			Actions selAction = new Actions(driver);
+			selAction.sendKeys( element, text ).perform();
+		}
+
+		////////////////////////////////////
+		//extra base selenium functionality
+		////////////////////////////////////
+
+		//a method to grab the web element using selenium webdriver
+		public WebElement getWebElement( Locators locator, String element ) throws Exception {
+			By byElement;
+			switch ( locator ) {		//determine which locator item we are interested in
+				case xpath:		{ byElement = By.xpath(element); 		break; }
+				case id:		{ byElement = By.id(element); 			break; }
+				case name:		{ byElement = By.name(element); 		break; }
+				case classname:		{ byElement = By.className(element); 		break; }
+				case linktext:		{ byElement = By.linkText(element); 		break; }
+				case paritallinktext:	{ byElement = By.partialLinkText(element); 	break; }
+				case tagname:		{ byElement = By.tagName(element); 		break; }
+				default:		{ throws new Exception(); }
+			}
+			WebElement query = driver.findElement( byElement );	//grab our element based on the locator
+			return query;	//return our query
+		}
+
+		//a method to obtain screenshots
+		public void takeScreenshot(String action) throws IOException {
+			//make our screenshot name friendly
+			action = action.replaceAll("[^a-zA-Z0-9]", "");  
+
+			//take a screenshot
+			File scrFile = ((TakesScreenshot)driver).getScreenshotAs(OutputType.FILE);
+			// Now you can do whatever you need to do with it, for example copy somewhere
+			FileUtils.copyFile(scrFile, new File("target/" + System.currentTimeMillis() + action + ".png"));    	
+		}
+	}
+You may notice that there are multiple pieces of Selenium functionality implemented in this code that we have not utilized in our tests. Some of this is simply for better coverage, some for examples of Webdriver’s capabilities, and other will be utilized later on. Some of the main things to note in the above code:
+
+The driver is defined and instantiated in this class. All other references to the driver must therefore use the instance setup here. That is why the browsers are determined in the constructor, and why the getDriver method was implemented.
+The method getWebElement is created in order to have Webdriver identify the element ‘under test.’ Webdriver has a few different ways of determining the element, and this way is ideal for having a generic way for locating your web page elements. In a section further down in this post, we’ll talk about other great ways to identify elements, making further use of this method
+The takeScreenshot method was included mainly for the discussion of best practices. Often times on a failure, the jUnit results don’t given enough information. A screenshot taken on a failed assert gives a lot more information. These can also be rolled into self-created output files, but that’s a topic for another post.
+Finally, we may want to look into wrapping each of our direct Selenium calls to capture any errors. Upon a failure, we could do many things, see if the element is missing, take a screenshot, or notify the user/handle the error in some graceful way. Additionally we could consider mitigating these errors occurring by first performing checks before performing the action. As with the above comment, these will be covered in another Selenium specific post.
+Test Implementations
+The next thing to examine is the Tests.java file we wrote last time. Along with the repeated selenium calls, several bits of functionality are also repeated throughout. We should create our own class for all of this functionality, so that is our login features or workflow does change at all, we only need to modify our Login.features file, and one more file, which contains all of the implementation. Unfortunately, Cucumber and Webdriver constrain us a bit in breaking out this functionality. Ideally we would have a separate definitions file for each piece of functionality that we were testing. However, since we need to define our Webdriver, and reference the same driver through every step, all of our definitions need to have access to this driver. Additionally, since Cucumber does not allow for constructors in the definition files (a basic design constraint), we need to keep all of the definitions in one file. The solution is to breakout our implementation of the login functionality into a different file, while keeping all the definitions in ‘Tests.java’. We’ll get to ‘Tests.java’ in a moment, but first we’ll look at a new file for the login functionality.
+
+For this new functionality, let’s create a new java class called ‘LoginActions.java’ in the same functionality package we created earlier for Selenium. Below you’ll see all of the implementation pulled out of the ‘Tests.java’ file we were working in last time. Additionally, instead of calling the Selenium actions directly, we are making calls to our new Selenium class.
+
+	package comix.cosmic.functionality;
+
+	import java.util.HashMap;
+
+	import org.openqa.selenium.WebDriver;
+	import org.openqa.selenium.WebElement;
+
+	import comix.cosmic.functionality.SeleniumWebdriver.Locators;
+
+	import static junit.framework.Assert.assertEquals;
+	import static junit.framework.Assert.assertTrue;
+
+	public class LoginActions {
+		//this hashmap will keep our users that are active in the system
+		private HashMap<String,String> users = new HashMap();	
+		//this is our selenium instance
+		private SeleniumWebdriver selenium;
+		//this is our selenium webdriver controlling our browsers
+		private WebDriver	driver;
+
+		//our constructor getting our selenium instance, and the driver to be used
+		public LoginActions( SeleniumWebdriver selenium ) {
+			this.selenium = selenium;
+			this.driver = selenium.getDriver();
+
+			//add our users that we want initially in the system
+			users.put("testuser1","testuser1");
+			users.put("testuser2","testuser2");
+			users.put("testuser3","testuser3");
+		}
+
+		//our basic login function
+		public void loginAs(String user) throws Exception {
+			enterUsername( user );
+			enterPassword( users.get(user) );
+			clickLogin();
+		}
+
+		//entering in the username
+		public void enterUsername(String user) throws Exception {
+			//type the username using the selenium functionality
+			selenium.type( Locators.id, "username", user );
+		}
+
+		//entering in the password
+		public void enterPassword(String password) throws Exception {
+			//type the password using the selenium functionality
+			selenium.type( Locators.id, "password", password );
+		}
+
+		//click the login button
+		public void clickLogin() throws Exception {
+			//click the button using the selenium functionality
+			selenium.click( Locators.id, "login" );
+			//wait one second using the selenium functionality
+			selenium.wait( 1 );
+		}
+
+		//check our error messages
+		public void checkLoginErrorMessage(String errorMessage) throws Exception {
+			WebElement errorElement = null;
+			//wait for up to 5 seconds for our error message
+			long end = System.currentTimeMillis() + 5000;
+			while (System.currentTimeMillis() < end) {
+				errorElement = selenium.getWebElement( Locators.id, "overError" );
+				// If results have been returned, the results are displayed in a drop down.
+				if (!errorElement.getText().equals("")) {
+					break;
+				}
+			}
+			assertEquals( errorMessage, errorElement.getText() );	//should we consider capturing this error better?
+			if ( errorMessage.contains( "username" ) ) {
+				errorElement = selenium.getWebElement( Locators.id, "userError" );
+				assertEquals( "*", errorElement.getText() );	//should we consider capturing this error better?
+			}
+			if ( errorMessage.contains( "password" ) ) {
+				errorElement = selenium.getWebElement( Locators.id, "passError" );
+				assertEquals(  "*", errorElement.getText() );	//should we consider capturing this error better?
+			}
+		}
+
+		//an enumeration holding the potential pages we are on
+		//this can be moved to another class once we have implemented more generic page functionality
+		public enum Pages	{ login, launcher };
+		//checking which page we are one
+		public void checkPage(Pages page) throws Exception {
+			String title;
+			String url;
+			switch( page ) {
+				case login:	{ title = "Login To Cosmic Comics";	url = "index.html";	break;	}
+				case launcher:	{ title = "Choose A Comic To View";	url = "launcher.html";	break;	}
+				default:	{ throw new Exception(); }
+			}
+		assertEquals( title, driver.getTitle() );	//should we consider capturing this error better?
+		assertTrue( driver.getCurrentUrl().endsWith( url ) );	//should we consider capturing this error better?
+		}
+	}
+You’ll notice that this class has much less repeated code, and is much cleaner. Additionally, we make use of our new Selenium class thereby simplify the structure. The only other thing to note is the use of passing the locator and element information. This is not ideal, as if our application changes in any way such that the elements change, each time we refer to our element would need to be updated. There are a few great solutions to this problem, but these will be covered (as mentioned above) in another post about Selenium.
+
+Definition Implementations
+The final piece of this restructuring is to go back to our original ‘Tests.java’ file, which now has been ultimately gutted. Let’s now rename this file to the more appropriate ‘CucumberDefinitions.java,’ and see how it looks now that we’ve moved the implementation out of it.
+
+	package comix.cosmic.definitions;
+
+	import org.openqa.selenium.WebDriver;
+
+	import comix.cosmic.functionality.LauncherActions;
+	import comix.cosmic.functionality.LoginActions;
+	import comix.cosmic.functionality.SeleniumWebdriver;
+	import comix.cosmic.functionality.LoginActions.Pages;
+	import comix.cosmic.functionality.SeleniumWebdriver.Browsers;
+
+	import cucumber.api.java.After;
+	import cucumber.api.java.en.Given;
+	import cucumber.api.java.en.Then;
+	import cucumber.api.java.en.When;
+
+	public class CucumberDefinitions {
+		private WebDriver		driver;	//this is our selenium webdriver controlling our browsers
+		private SeleniumWebdriver 	selenium;	//this is our selenium instance
+		private LoginActions 		login; 	//our login class
+
+		//the url of our application
+		private final String 		appURL = "http://cosmiccomix.appspot.com/index.html";
+
+		@After	//performed after all is done
+		public void cleanUp() {
+			driver.quit();
+		}
+
+		//our statement for choosing a browser to test in
+		@Given("^I want to use the browser (.*)$")
+		public void chooseBrowser(Browsers browser) throws Exception {
+			selenium = new SeleniumWebdriver(browser, appURL);	//creates our selenium instance, and starts the driver
+			driver = selenium.getDriver();			//get which driver we are using
+			login = new LoginActions( selenium );			//instantiates our login class, passing the selenium instance and driver
+		}
+
+		//which user have we already logged in as
+		@Given("^I have logged in as (.*)$")
+		public void loginAs(String user) throws Exception {
+			login.loginAs( user );
+		}
+
+		//////////////////////////////////
+		// Login Definitions
+		//////////////////////////////////
+
+		//type in our username
+		@When("^I type (.*) in the username input field$")
+		public void enterUsername(String user) throws Exception {
+			login.enterUsername( user );
+		}
+
+		//type in our password
+		@When("^I type (.*) in the password input field$")
+		public void enterPassword(String password) throws Exception {
+			login.enterPassword( password );
+		}
+
+		//click the login button
+		@When("^I click the login button$")
+		public void clickLogin() throws Exception {
+			login.clickLogin();
+		}
+
+		//check our message
+		@Then("^I see the login error message \"(.*)\"$")
+		public void checkLoginErrorMessage(String errorMessage) throws Exception {
+			login.checkLoginErrorMessage( errorMessage );
+		}
+
+		//check our page
+		@Then("^I am on the (.*) page$")
+		public void checkPage(Pages page) throws Exception {
+			login.checkPage( page );
+		}
+	}
+This code is much cleaner than before, instantiates each of our classes needed, and runs everything much quicker. This code is also much more generic, not referring to specific workflows or elements, leaving that up to either the features or the implementation of the test steps. This code will stand up better to changes in the application.
+
+Adding On and Result Analysis
+Now that we have three distinct classes setup to handle each of our functionality, it is time to start adding on more tests. Let’s say that we want to add in a simple test to check for SQL injections. We will also add in some additional tests for the launcher page. We’ll leave these open to interpretation to implement, but once in place, it’s time to run them.
+
+Each time we add an additional test, we need to ensure we add a matching declaration for the test step. Ideally, if we can, we want to reuse steps previous used, but if we have a completely new step, we will then go ahead and define it. We want to try to write our regular expressions as generically as possible to encompass as many options as we think we may be using in our test steps. Once we believe we have implemented all of our tests it’s time to run them. Follow the steps from the previous post to exercise all of these new tests.
+
+Upon completion, test results will be available in the project directory under a folder labeled target. Navigate to the folder labeled cucumber-html-report and open the index.html file. This file will show your results. There are four different stylings for the results.
+
+Green – The test step was properly implemented, ran, and passed
+Red – The test step was properly implemented, ran, and failed
+Yellow – The test step was not properly implemented and therefore could not be run
+Blue – The test step was not tested due to a failure, or missing implementation
+See below for an example results file
+
+SAMPLE
+
+The first step is to fix any un-implemented (yellow) test steps. If these are being run in Eclipse, Eclipse will offer suggestions on how to implement the missing steps. Look at the ‘console’ tab at the bottom of the screen, and a regular expression suggestion will be shown. This suggestion will be very generic, and often times this needs to be tweaked a little. Once all these test steps are completed re-run the tests, and re-check for problem areas.
+
+The next step is to examine the failed (red) test steps. For each test step determine whether the test failed as a result of an issue with the code or a bad test step. If the code is bad, ideally a ticket would be opened against it, or the code immediately fixed. There are also several possibilities for a bad test steps. The test code may not be waiting properly for a return, or may be checking a bad field, or for the wrong data. Another post will be made in the future about optimizing WebDriver and Selenium calls, the best ways to make them for dynamic pages, and how to refer to elements in the ever changing world of web-design.
+
+After all of these un-implemented and failed test steps are fixed, and the tests are re-run, the skipped (blue) test steps should resolve themselves. Stay tuned for the third post in this series which will give details on how to run this both from the command line (on any local machine), and how to set this up in a continuous integration environment, specifically utilizing our open source tool SecureCI.
